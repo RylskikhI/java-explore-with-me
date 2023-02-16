@@ -23,7 +23,7 @@ public class StatsClient {
     private final String url;
     private final HttpClient httpClient;
 
-    public StatsClient(@Value("${stats.server.url}") String url) {
+    public StatsClient(@Value("${stats-client.server.url}") String url) {
         this.url = url;
         this.httpClient = HttpClient.newHttpClient();
     }
