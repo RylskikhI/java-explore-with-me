@@ -23,7 +23,7 @@ public class StatsServiceImpl implements StatsService {
 
     @Override
     public List<ViewStats> getStats(String start, String end, List<String> uris, Boolean unique) {
-        if (unique) {
+        if (Boolean.TRUE.equals(unique)) {
             Map<String, Integer> uniqueHits = uris.stream().collect(Collectors.toMap(uri -> uri, statsRepository::countDistinctIp, (a, b) -> b));
             return findStatsByHits(start, end, uris, uniqueHits);
         } else {
@@ -41,14 +41,6 @@ public class StatsServiceImpl implements StatsService {
     }
 
     private List<ViewStats> findStatsByHits(String start, String end, List<String> uris, Map<String, Integer> hits) {
-        /*DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-        return statsRepository.findAllByUriInAndTimestampBetween(uris, LocalDateTime.parse(start, formatter), LocalDateTime.parse(end, formatter))
-                .stream()
-                .filter(distinctByKey(Stats::getUri))
-                .map(it -> StatsMapper.toViewStats(it, hits.get(it.getUri())))
-                .sorted(Comparator.comparing(ViewStats::getHits).reversed())
-                .collect(Collectors.toList());*/
-
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         return statsRepository
                 .findAllByUriInAndTimestampBetween(uris, LocalDateTime.parse(start, formatter), LocalDateTime.parse(end, formatter))
