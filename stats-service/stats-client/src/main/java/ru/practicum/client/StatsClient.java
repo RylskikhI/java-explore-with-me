@@ -1,67 +1,81 @@
 package ru.practicum.client;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.stereotype.Component;
-import ru.practicum.dto.EndpointHit;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.*;
+import org.springframework.lang.Nullable;
+import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.web.server.ResponseStatusException;
 import ru.practicum.dto.ViewStats;
 
-import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
-@Slf4j
-@Component
 public class StatsClient {
-    private final String url;
-    private final HttpClient httpClient;
+    protected final RestTemplate rest;
 
-    public StatsClient(@Value("${stats-client.server.url}") String url) {
-        this.url = url;
-        this.httpClient = HttpClient.newHttpClient();
+    public StatsClient(RestTemplate rest) {
+        this.rest = rest;
     }
 
-    public EndpointHit save(EndpointHit endpointHit) throws IOException, InterruptedException {
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(url + "/hit"))
-                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-                .POST(HttpRequest.BodyPublishers.ofString(new ObjectMapper().writeValueAsString(endpointHit)))
-                .build();
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() >= 200 && response.statusCode() < 300) {
-            log.info("Send post request /hit statusCode={}", response.statusCode());
-            return new ObjectMapper().readValue(response.body(), EndpointHit.class);
-        } else {
-            log.error("Send post request /hit statusCode={}", response.statusCode());
-            throw new RuntimeException("Request failed with status code " + response.statusCode());
-        }
+    protected <T> void post(String path, T body) {
+        makeAndSendRequest(HttpMethod.POST, path, null, body);
     }
 
-    public List<ViewStats> getStats(String start, String end, List<String> uris, Boolean unique)
-            throws IOException, InterruptedException {
-        String uriParams = String.format("?start=%s&end=%s&uris=%s&unique=%s", start, end,
-                String.join(",", uris), unique);
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(url + "/stats" + uriParams))
-                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-                .GET()
-                .build();
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() >= 200 && response.statusCode() < 300) {
-            log.info("Send get request /stats?start={}&end={}&uris={}&unique={} statusCode={}",
-                    start, end, uris, unique, response.statusCode());
-            return Arrays.asList(new ObjectMapper().readValue(response.body(), ViewStats[].class));
-        } else {
-            log.error("Send get request /stats?start={}&end={}&uris={}&unique={} statusCode={}",
-                    start, end, uris, unique, response.statusCode());
-            throw new RuntimeException("Request failed with status code " + response.statusCode());
+    protected ResponseEntity<List<ViewStats>> get(String path, Map<String, Object> parameters) {
+        HttpEntity<Object> requestEntity = new HttpEntity<>(null, defaultHeaders());
+        ResponseEntity<List<ViewStats>> statsServerResponse;
+        try {
+            statsServerResponse = rest.exchange(path, HttpMethod.GET, requestEntity, new ParameterizedTypeReference<>() {
+            }, parameters);
+        } catch (HttpStatusCodeException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
         }
+        return prepareEventClientResponse2(statsServerResponse);
+    }
+
+    private ResponseEntity<Object> prepareEventClientResponse(ResponseEntity<Object> response) {
+        if (response.getStatusCode().is2xxSuccessful()) {
+            return response;
+        }
+        ResponseEntity.BodyBuilder bodyBuilder = ResponseEntity.status((response.getStatusCode()));
+        if (response.hasBody()) {
+            return bodyBuilder.body(response.getBody());
+        }
+        return bodyBuilder.build();
+    }
+
+    private ResponseEntity<List<ViewStats>> prepareEventClientResponse2(ResponseEntity<List<ViewStats>> response) {
+        if (response.getStatusCode().is2xxSuccessful()) {
+            return response;
+        }
+        ResponseEntity.BodyBuilder bodyBuilder = ResponseEntity.status((response.getStatusCode()));
+        if (response.hasBody()) {
+            return bodyBuilder.body(response.getBody());
+        }
+        return bodyBuilder.build();
+    }
+
+    private <T> ResponseEntity<Object> makeAndSendRequest(
+            HttpMethod method, String path, @Nullable Map<String, Object> parameters, @Nullable T body) {
+        HttpEntity<T> requestEntity = new HttpEntity<>(body, defaultHeaders());
+        ResponseEntity<Object> statsServerResponse;
+        try {
+            if (parameters != null) {
+                statsServerResponse = rest.exchange(path, method, requestEntity, Object.class, parameters);
+            } else {
+                statsServerResponse = rest.exchange(path, method, requestEntity, Object.class);
+            }
+        } catch (HttpStatusCodeException ex) {
+            return ResponseEntity.status(ex.getStatusCode()).body(ex.getResponseBodyAsByteArray());
+        }
+        return prepareEventClientResponse(statsServerResponse);
+    }
+
+    private HttpHeaders defaultHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+        return headers;
     }
 }
