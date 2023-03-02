@@ -54,4 +54,6 @@ public class Event {
     private Set<Request> requests;
     @ManyToMany(mappedBy = "events")
     private Set<Compilation> compilations;
+    @OneToMany(mappedBy = "event")
+    private Set<Comment> comments;
 }

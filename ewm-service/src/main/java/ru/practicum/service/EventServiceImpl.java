@@ -18,6 +18,7 @@ import ru.practicum.enums.State;
 import ru.practicum.enums.StateAction;
 import ru.practicum.exception.AccessException;
 import ru.practicum.exception.EventStateException;
+import ru.practicum.exception.NotFoundException;
 import ru.practicum.mapper.EventMapper;
 import ru.practicum.mapper.RequestMapper;
 import ru.practicum.model.Category;
@@ -54,9 +55,9 @@ public class EventServiceImpl implements EventService {
     @Override
     public EventFullDto addNewEvent(Long userId, NewEventDto eventDto) {
         User user = users.findById(userId)
-                .orElseThrow(() -> new EntityNotFoundException("User with id=" + userId + " was not found"));
+                .orElseThrow(() -> new NotFoundException("User with id=" + userId + " was not found"));
         Category category = categories.findById(eventDto.getCategory()).orElseThrow(
-                () -> new EntityNotFoundException("Category with id=" + eventDto.getCategory() + " was not found"));
+                () -> new NotFoundException("Category with id=" + eventDto.getCategory() + " was not found"));
         Event newEvent = mapper.mapToEvent(eventDto);
         if (newEvent.getEventDate().isBefore(LocalDateTime.now().minusHours(2))) {
             throw new AccessException("Field: eventDate. Error: должно содержать дату, которая еще не наступила. " +
@@ -85,9 +86,9 @@ public class EventServiceImpl implements EventService {
     public EventFullDto getPrivateUserEvent(Long userId, Long eventId) {
         if (users.existsById(userId)) {
             return mapper.mapToEventFullDto(events.findByEventIdAndInitiatorUserId(eventId, userId)
-                    .orElseThrow(() -> new EntityNotFoundException("Event with id=" + eventId + " was not found")));
+                    .orElseThrow(() -> new NotFoundException("Event with id=" + eventId + " was not found")));
         } else {
-            throw new EntityNotFoundException("User with id=" + userId + " was not found");
+            throw new NotFoundException("User with id=" + userId + " was not found");
         }
     }
 
@@ -145,11 +146,11 @@ public class EventServiceImpl implements EventService {
             }
         }
         Event event = events.findById(eventId).orElseThrow(
-                () -> new EntityNotFoundException("Event with id=" + eventId + " was not found"));
+                () -> new NotFoundException("Event with id=" + eventId + " was not found"));
         changeEventState(event, updateEvent.getStateAction());
         if (updateEvent.getCategory() != null) {
             event.setCategory(categories.findById(updateEvent.getCategory()).orElseThrow(
-                    () -> new EntityNotFoundException("Category with id=" + updateEvent.getCategory() + " was not found")));
+                    () -> new NotFoundException("Category with id=" + updateEvent.getCategory() + " was not found")));
         }
         return mapper.mapToEventFullDto(events.save(mapper.mapToEvent(updateEvent, event)));
     }

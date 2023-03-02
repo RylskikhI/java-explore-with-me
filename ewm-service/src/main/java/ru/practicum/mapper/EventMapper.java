@@ -7,7 +7,7 @@ import ru.practicum.model.Event;
 
 import java.util.List;
 
-@Mapper(componentModel = "spring", uses = {CategoryMapper.class, UserMapper.class})
+@Mapper(componentModel = "spring", uses = {CategoryMapper.class, UserMapper.class, CommentMapper.class})
 public interface EventMapper {
     @Mapping(target = "category", ignore = true)
     @Mapping(source = "eventDate", target = "eventDate", dateFormat = "yyyy-MM-dd HH:mm:ss")
@@ -35,8 +35,6 @@ public interface EventMapper {
     List<EventFullDto> mapToListEventFullDto(List<Event> events);
 
     State mapToState(String state);
-
-    List<State> mapToListStates(List<String> states);
 
     @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
     @Mapping(target = "category", ignore = true)

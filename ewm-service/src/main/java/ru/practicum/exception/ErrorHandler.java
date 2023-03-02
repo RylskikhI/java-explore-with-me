@@ -68,7 +68,7 @@ public class ErrorHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
     }
 
-    @ExceptionHandler({AccessException.class, EventStateException.class})
+    @ExceptionHandler({AccessException.class, EventStateException.class, CommentException.class})
     private ResponseEntity<ApiError> handleExceptions(RuntimeException e) {
         ApiError errorResponse = ApiError.builder()
                 .errors(Arrays.asList(e.getStackTrace()))
