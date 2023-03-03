@@ -21,10 +21,7 @@ import ru.practicum.exception.EventStateException;
 import ru.practicum.exception.NotFoundException;
 import ru.practicum.mapper.EventMapper;
 import ru.practicum.mapper.RequestMapper;
-import ru.practicum.model.Category;
-import ru.practicum.model.Event;
-import ru.practicum.model.QEvent;
-import ru.practicum.model.User;
+import ru.practicum.model.*;
 import ru.practicum.repository.CategoryRepository;
 import ru.practicum.repository.EventRepository;
 import ru.practicum.repository.RequestRepository;
@@ -202,24 +199,21 @@ public class EventServiceImpl implements EventService {
     }
 
     private void changeEventState(Event event, String actionState) {
-        switch (StateAction.getState(actionState)) {
-            case PUBLISHED:
-                if (event.getState().equals(State.PENDING)) {
-                    event.setState(State.PUBLISHED);
-                    event.setPublishedOn(LocalDateTime.now());
-                    break;
-                } else {
-                    throw new EventStateException("Cannot publish the event because it's not in the right state: " +
-                            event.getState());
-                }
-            case CANCELED:
-                if (event.getState().equals(State.PENDING)) {
-                    event.setState(State.CANCELED);
-                    break;
-                } else {
-                    throw new EventStateException("Cannot canceled the event because it's not in the right state: " +
-                            event.getState());
-                }
+        State stateAction = StateAction.getState(actionState);
+        if (stateAction == State.PUBLISHED) {
+            if (event.getState().equals(State.PENDING)) {
+                event.setState(State.PUBLISHED); event.setPublishedOn(LocalDateTime.now());
+            } else {
+                throw new EventStateException("Cannot publish the event because it’s not in the right state: "
+                        + event.getState());
+            }
+        } else if (stateAction == State.CANCELED) {
+            if (event.getState().equals(State.PENDING)) {
+                event.setState(State.CANCELED);
+            } else {
+                throw new EventStateException("Cannot canceled the event because it’s not in the right state: "
+                        + event.getState());
+            }
         }
     }
 
@@ -238,7 +232,7 @@ public class EventServiceImpl implements EventService {
         if (rangeStart == null && rangeEnd == null) {
             booleanBuilder.and(QEvent.event.eventDate.after(LocalDateTime.now()));
         }
-        if (onlyAvailable) {
+        if (Boolean.TRUE.equals(onlyAvailable)) {
             booleanBuilder.and((QEvent.event.participantLimit.eq(0)))
                     .or(QEvent.event.participantLimit.gt(QEvent.event.confirmedRequests));
         }
@@ -284,35 +278,44 @@ public class EventServiceImpl implements EventService {
     private void moderationRequests(List<ParticipationRequestDto> confirmedRequests,
                                     List<ParticipationRequestDto> rejectedRequests,
                                     Event event, EventRequestStatusUpdate requests) {
-        requestRepository.findAllByRequestIdIn(requests.getRequestIds()).stream().peek(r -> {
-            if (r.getStatus().equals(RequestStatus.PENDING)) {
-                if (event.getParticipantLimit() == 0) {
+        requestRepository.findAllByRequestIdIn(requests.getRequestIds())
+                .stream().peek(r -> updateRequestStatus(r, event, requests))
+                .map(requestMapper::mapToRequestDto)
+                .forEach(r -> addRequestToLists(r, confirmedRequests, rejectedRequests));
+    }
+
+    private void updateRequestStatus(Request r, Event event, EventRequestStatusUpdate requests) {
+        if (r.getStatus().equals(RequestStatus.PENDING)) {
+            if (event.getParticipantLimit() == 0) {
+                r.setStatus(RequestStatus.CONFIRMED);
+                event.setConfirmedRequests(event.getConfirmedRequests() + 1);
+            } else if (event.getParticipantLimit() > event.getConfirmedRequests()) {
+                if (!event.getRequestModeration()) {
                     r.setStatus(RequestStatus.CONFIRMED);
                     event.setConfirmedRequests(event.getConfirmedRequests() + 1);
-                } else if (event.getParticipantLimit() > event.getConfirmedRequests()) {
-                    if (!event.getRequestModeration()) {
+                } else {
+                    if (requests.getStatus().equals(RequestStatus.CONFIRMED.toString())) {
                         r.setStatus(RequestStatus.CONFIRMED);
                         event.setConfirmedRequests(event.getConfirmedRequests() + 1);
                     } else {
-                        if (requests.getStatus().equals(RequestStatus.CONFIRMED.toString())) {
-                            r.setStatus(RequestStatus.CONFIRMED);
-                            event.setConfirmedRequests(event.getConfirmedRequests() + 1);
-                        } else {
-                            r.setStatus(RequestStatus.REJECTED);
-                        }
+                        r.setStatus(RequestStatus.REJECTED);
                     }
-                } else {
-                    r.setStatus(RequestStatus.REJECTED);
                 }
             } else {
-                throw new AccessException("Can only confirm PENDING requests");
+                r.setStatus(RequestStatus.REJECTED);
             }
-        }).map(requestMapper::mapToRequestDto).forEach(r -> {
-            if (r.getStatus().equals(RequestStatus.CONFIRMED)) {
-                confirmedRequests.add(r);
-            } else {
-                rejectedRequests.add(r);
-            }
-        });
+        } else {
+            throw new AccessException("Can only confirm PENDING requests");
+        }
+    }
+
+    private void addRequestToLists(ParticipationRequestDto r,
+                                   List<ParticipationRequestDto> confirmedRequests,
+                                   List<ParticipationRequestDto> rejectedRequests) {
+        if (r.getStatus().equals(RequestStatus.CONFIRMED)) {
+            confirmedRequests.add(r);
+        } else {
+            rejectedRequests.add(r);
+        }
     }
 }
