@@ -18,12 +18,10 @@ import ru.practicum.enums.State;
 import ru.practicum.enums.StateAction;
 import ru.practicum.exception.AccessException;
 import ru.practicum.exception.EventStateException;
+import ru.practicum.exception.NotFoundException;
 import ru.practicum.mapper.EventMapper;
 import ru.practicum.mapper.RequestMapper;
-import ru.practicum.model.Category;
-import ru.practicum.model.Event;
-import ru.practicum.model.QEvent;
-import ru.practicum.model.User;
+import ru.practicum.model.*;
 import ru.practicum.repository.CategoryRepository;
 import ru.practicum.repository.EventRepository;
 import ru.practicum.repository.RequestRepository;
@@ -54,9 +52,9 @@ public class EventServiceImpl implements EventService {
     @Override
     public EventFullDto addNewEvent(Long userId, NewEventDto eventDto) {
         User user = users.findById(userId)
-                .orElseThrow(() -> new EntityNotFoundException("User with id=" + userId + " was not found"));
+                .orElseThrow(() -> new NotFoundException("User with id=" + userId + " was not found"));
         Category category = categories.findById(eventDto.getCategory()).orElseThrow(
-                () -> new EntityNotFoundException("Category with id=" + eventDto.getCategory() + " was not found"));
+                () -> new NotFoundException("Category with id=" + eventDto.getCategory() + " was not found"));
         Event newEvent = mapper.mapToEvent(eventDto);
         if (newEvent.getEventDate().isBefore(LocalDateTime.now().minusHours(2))) {
             throw new AccessException("Field: eventDate. Error: должно содержать дату, которая еще не наступила. " +
@@ -85,9 +83,9 @@ public class EventServiceImpl implements EventService {
     public EventFullDto getPrivateUserEvent(Long userId, Long eventId) {
         if (users.existsById(userId)) {
             return mapper.mapToEventFullDto(events.findByEventIdAndInitiatorUserId(eventId, userId)
-                    .orElseThrow(() -> new EntityNotFoundException("Event with id=" + eventId + " was not found")));
+                    .orElseThrow(() -> new NotFoundException("Event with id=" + eventId + " was not found")));
         } else {
-            throw new EntityNotFoundException("User with id=" + userId + " was not found");
+            throw new NotFoundException("User with id=" + userId + " was not found");
         }
     }
 
@@ -145,11 +143,11 @@ public class EventServiceImpl implements EventService {
             }
         }
         Event event = events.findById(eventId).orElseThrow(
-                () -> new EntityNotFoundException("Event with id=" + eventId + " was not found"));
+                () -> new NotFoundException("Event with id=" + eventId + " was not found"));
         changeEventState(event, updateEvent.getStateAction());
         if (updateEvent.getCategory() != null) {
             event.setCategory(categories.findById(updateEvent.getCategory()).orElseThrow(
-                    () -> new EntityNotFoundException("Category with id=" + updateEvent.getCategory() + " was not found")));
+                    () -> new NotFoundException("Category with id=" + updateEvent.getCategory() + " was not found")));
         }
         return mapper.mapToEventFullDto(events.save(mapper.mapToEvent(updateEvent, event)));
     }
@@ -201,24 +199,21 @@ public class EventServiceImpl implements EventService {
     }
 
     private void changeEventState(Event event, String actionState) {
-        switch (StateAction.getState(actionState)) {
-            case PUBLISHED:
-                if (event.getState().equals(State.PENDING)) {
-                    event.setState(State.PUBLISHED);
-                    event.setPublishedOn(LocalDateTime.now());
-                    break;
-                } else {
-                    throw new EventStateException("Cannot publish the event because it's not in the right state: " +
-                            event.getState());
-                }
-            case CANCELED:
-                if (event.getState().equals(State.PENDING)) {
-                    event.setState(State.CANCELED);
-                    break;
-                } else {
-                    throw new EventStateException("Cannot canceled the event because it's not in the right state: " +
-                            event.getState());
-                }
+        State stateAction = StateAction.getState(actionState);
+        if (stateAction == State.PUBLISHED) {
+            if (event.getState().equals(State.PENDING)) {
+                event.setState(State.PUBLISHED); event.setPublishedOn(LocalDateTime.now());
+            } else {
+                throw new EventStateException("Cannot publish the event because it’s not in the right state: "
+                        + event.getState());
+            }
+        } else if (stateAction == State.CANCELED) {
+            if (event.getState().equals(State.PENDING)) {
+                event.setState(State.CANCELED);
+            } else {
+                throw new EventStateException("Cannot canceled the event because it’s not in the right state: "
+                        + event.getState());
+            }
         }
     }
 
@@ -237,7 +232,7 @@ public class EventServiceImpl implements EventService {
         if (rangeStart == null && rangeEnd == null) {
             booleanBuilder.and(QEvent.event.eventDate.after(LocalDateTime.now()));
         }
-        if (onlyAvailable) {
+        if (Boolean.TRUE.equals(onlyAvailable)) {
             booleanBuilder.and((QEvent.event.participantLimit.eq(0)))
                     .or(QEvent.event.participantLimit.gt(QEvent.event.confirmedRequests));
         }
@@ -283,35 +278,44 @@ public class EventServiceImpl implements EventService {
     private void moderationRequests(List<ParticipationRequestDto> confirmedRequests,
                                     List<ParticipationRequestDto> rejectedRequests,
                                     Event event, EventRequestStatusUpdate requests) {
-        requestRepository.findAllByRequestIdIn(requests.getRequestIds()).stream().peek(r -> {
-            if (r.getStatus().equals(RequestStatus.PENDING)) {
-                if (event.getParticipantLimit() == 0) {
+        requestRepository.findAllByRequestIdIn(requests.getRequestIds())
+                .stream().peek(r -> updateRequestStatus(r, event, requests))
+                .map(requestMapper::mapToRequestDto)
+                .forEach(r -> addRequestToLists(r, confirmedRequests, rejectedRequests));
+    }
+
+    private void updateRequestStatus(Request r, Event event, EventRequestStatusUpdate requests) {
+        if (r.getStatus().equals(RequestStatus.PENDING)) {
+            if (event.getParticipantLimit() == 0) {
+                r.setStatus(RequestStatus.CONFIRMED);
+                event.setConfirmedRequests(event.getConfirmedRequests() + 1);
+            } else if (event.getParticipantLimit() > event.getConfirmedRequests()) {
+                if (!event.getRequestModeration()) {
                     r.setStatus(RequestStatus.CONFIRMED);
                     event.setConfirmedRequests(event.getConfirmedRequests() + 1);
-                } else if (event.getParticipantLimit() > event.getConfirmedRequests()) {
-                    if (!event.getRequestModeration()) {
+                } else {
+                    if (requests.getStatus().equals(RequestStatus.CONFIRMED.toString())) {
                         r.setStatus(RequestStatus.CONFIRMED);
                         event.setConfirmedRequests(event.getConfirmedRequests() + 1);
                     } else {
-                        if (requests.getStatus().equals(RequestStatus.CONFIRMED.toString())) {
-                            r.setStatus(RequestStatus.CONFIRMED);
-                            event.setConfirmedRequests(event.getConfirmedRequests() + 1);
-                        } else {
-                            r.setStatus(RequestStatus.REJECTED);
-                        }
+                        r.setStatus(RequestStatus.REJECTED);
                     }
-                } else {
-                    r.setStatus(RequestStatus.REJECTED);
                 }
             } else {
-                throw new AccessException("Can only confirm PENDING requests");
+                r.setStatus(RequestStatus.REJECTED);
             }
-        }).map(requestMapper::mapToRequestDto).forEach(r -> {
-            if (r.getStatus().equals(RequestStatus.CONFIRMED)) {
-                confirmedRequests.add(r);
-            } else {
-                rejectedRequests.add(r);
-            }
-        });
+        } else {
+            throw new AccessException("Can only confirm PENDING requests");
+        }
+    }
+
+    private void addRequestToLists(ParticipationRequestDto r,
+                                   List<ParticipationRequestDto> confirmedRequests,
+                                   List<ParticipationRequestDto> rejectedRequests) {
+        if (r.getStatus().equals(RequestStatus.CONFIRMED)) {
+            confirmedRequests.add(r);
+        } else {
+            rejectedRequests.add(r);
+        }
     }
 }

@@ -10,25 +10,24 @@ import java.util.Objects;
 @Getter
 @Setter
 @Entity
-@Table(name = "users")
-public class User {
+@Table(name = "reports")
+public class Report {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "user_id")
-    private Long userId;
-    @Column(nullable = false)
-    private String name;
-    @Column(nullable = false, unique = true)
-    private String email;
-    @Column(name = "are_comments_blocked")
-    private Boolean areCommentsBlocked = Boolean.FALSE;
+    @Column(name = "report_id")
+    private Long reportId;
+    @ManyToOne
+    @JoinColumn(name = "reported_user")
+    private User reportedUser;
+    @Column(name = "reported_message", nullable = false)
+    private String reportedMessage;
 
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || Hibernate.getClass(this) != Hibernate.getClass(o)) return false;
-        User user = (User) o;
-        return userId != null && Objects.equals(userId, user.userId);
+        Report report = (Report) o;
+        return reportId != null && Objects.equals(reportId, report.reportId);
     }
 
     @Override
